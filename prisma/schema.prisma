@@ -1,0 +1,105 @@
+// Prisma-Schema der Finanz- & Portfolio-App.
+// Alle Geldbeträge (amount) werden als Integer in Cent gespeichert (z. B. 12,34 € = 1234).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum CategoryType {
+  INCOME
+  EXPENSE
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum BillingInterval {
+  MONTHLY
+  YEARLY
+}
+
+model Category {
+  id             String       @id @default(cuid())
+  name           String       @unique
+  type           CategoryType
+  color          String       @default("#64748b") // Hex-Farbe für Charts/Badges
+  icon           String       @default("circle") // Lucide-Icon-Name (kebab-case)
+  isSubscription Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  transactions  Transaction[]
+  subscriptions Subscription[]
+}
+
+model Transaction {
+  id             String          @id @default(cuid())
+  amount         Int // in Cent, immer positiv – Richtung über `type`
+  type           TransactionType
+  date           DateTime
+  note           String?
+  categoryId     String
+  category       Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  // Gesetzt, wenn die Buchung aus einem Abo erzeugt wurde
+  subscriptionId String?
+  subscription   Subscription?   @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@unique([subscriptionId, date]) // verhindert doppelte Abo-Buchungen pro Fälligkeit
+  @@index([date])
+  @@index([categoryId])
+}
+
+model Subscription {
+  id         String          @id @default(cuid())
+  title      String
+  amount     Int // in Cent pro Intervall
+  interval   BillingInterval @default(MONTHLY)
+  isActive   Boolean         @default(true)
+  startDate  DateTime        @default(now()) // erste Fälligkeit; bei YEARLY bestimmt der Monat die Fälligkeit
+  billingDay Int             @default(1) // Tag im Monat (1–31, wird auf Monatsende gekürzt)
+  note       String?
+  categoryId String
+  category   Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  transactions Transaction[]
+
+  @@index([categoryId])
+}
+
+model PortfolioPosition {
+  id         String   @id @default(cuid())
+  ticker     String   @unique // z. B. AAPL, VWCE.DE
+  name       String?
+  shares     Float
+  buyInPrice Float? // durchschnittlicher Kaufkurs je Anteil (in Kurswährung)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// Cache für Tagesschlusskurse (und Wechselkurse wie "USDEUR=X") von Yahoo Finance
+model StockQuoteCache {
+  ticker         String    @id
+  name           String?
+  lastClosePrice Float
+  currency       String
+  marketTime     DateTime? // Zeitpunkt des Kurses laut Börse
+  updatedAt      DateTime  @updatedAt // Zeitpunkt des letzten Abrufs
+}
+
+// Einzeilige Einstellungstabelle (id = 1)
+model Setting {
+  id             Int      @id @default(1)
+  openingBalance Int      @default(0) // Startguthaben (Cash) in Cent
+  updatedAt      DateTime @updatedAt
+}
